@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Data.SqlClient;
 using System.Linq;
 using System.Text;
@@ -56,21 +57,44 @@ namespace ConnectionLevel.Models
             using (var connection = new SqlConnection(_connectionString))
             using (var command = connection.CreateCommand())
             {
+                SqlTransaction transaction = null;
                 try
                 {
                     connection.Open();
-                    command.CommandText = $"insert into Users values('{user.Login}', '{user.Password}')";
+                    transaction = connection.BeginTransaction();
+                    command.Transaction = transaction;
+                    command.CommandText = $"insert into Users values(@login, @password)";
+
+                    SqlParameter loginParameter = new SqlParameter
+                    {
+                        ParameterName = "@login",
+                        SqlDbType = System.Data.SqlDbType.NVarChar,
+                        SqlValue = user.Login
+                    };
+
+                    SqlParameter passwordParameter = new SqlParameter
+                    {
+                        ParameterName = "@password",
+                        SqlDbType = System.Data.SqlDbType.NVarChar,
+                        SqlValue = user.Password
+                    };
+
+                    command.Parameters.AddRange(new SqlParameter[] { loginParameter, passwordParameter });
                     var affectedRows = command.ExecuteNonQuery();
 
                     if (affectedRows < 1) throw new Exception("Вставка не удалась");
+
+                    transaction.Commit();
                 }
                 catch (SqlException exception)
                 {
+                    transaction?.Rollback();
                     //ToDo obrabotka
                     throw;
                 }
                 catch (Exception exception)
                 {
+                    transaction?.Rollback();
                     //ToDo obrabotka
                     throw;
                 }
@@ -85,6 +109,37 @@ namespace ConnectionLevel.Models
         public void Update(User user)
         {
 
+        }
+
+        public void ExecuteTransaction(DbConnection connection, params DbCommand[] commands)
+        {
+            DbTransaction transaction = null;
+            transaction = connection.BeginTransaction();
+            for(int i = 0; i < commands.Length; i++)
+            {
+                commands[i].Transaction = transaction;
+            }
+            for(int i = 0; i < commands.Length; i++)
+            {
+                try
+                {
+                    var affectedRows = commands[i].ExecuteNonQuery();
+                    if (affectedRows < 1) throw new Exception("Вставка не удалась");
+                }
+                catch (DbException exception)
+                {
+                    transaction?.Rollback();
+                    //ToDo obrabotka
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    transaction?.Rollback();
+                    //ToDo obrabotka
+                    throw;
+                }
+            }            
+            transaction.Commit();
         }
     }
 }

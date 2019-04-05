@@ -1,29 +1,37 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data.Common;
-using System.Data.SqlClient;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Configuration;
 
 namespace ConnectionLevel.Models
 {
     public class UsersTableDataService
     {
         private readonly string _connectionString;
+        private readonly string _ownerName;
+        private readonly DbProviderFactory _providerFactory;
+
+
         public UsersTableDataService()
         {
-            _connectionString = @"Data Source=(LocalDB)\MSSQLLocalDB;AttachDbFilename=C:\Users\оралове\Source\Repos\ConnectionLevel\ConnectionLevel\ConnectionLevel.DataAccess\Database.mdf;Integrated Security=True";
+            _connectionString = ConfigurationManager.ConnectionStrings["mainAppConnectionString"].ConnectionString;
+            _ownerName = ConfigurationManager.AppSettings["ownerName"];
+            
+            _providerFactory = DbProviderFactories.GetFactory(ConfigurationManager.ConnectionStrings["mainAppConnectionString"].ProviderName);
         }
         public List<User> GetAll()
         {
             var data = new List<User>();
 
-            using (var connection = new SqlConnection(_connectionString))
+            using (var connection = _providerFactory.CreateConnection())
             using (var command = connection.CreateCommand())
             {
                 try
                 {
+                    connection.ConnectionString = _connectionString;
                     connection.Open();
                     command.CommandText = "select * from Users";
 
@@ -38,7 +46,7 @@ namespace ConnectionLevel.Models
                     }
                     dataReader.Close();
                 }
-                catch (SqlException exception)
+                catch (DbException exception)
                 {
                     //ToDo obrabotka
                     throw;
@@ -54,39 +62,36 @@ namespace ConnectionLevel.Models
 
         public void Add(User user)
         {
-            using (var connection = new SqlConnection(_connectionString))
+            using (var connection = _providerFactory.CreateConnection())
             using (var command = connection.CreateCommand())
             {
-                SqlTransaction transaction = null;
+                DbTransaction transaction = null;
                 try
                 {
+                    connection.ConnectionString = _connectionString;
                     connection.Open();
                     transaction = connection.BeginTransaction();
                     command.Transaction = transaction;
                     command.CommandText = $"insert into Users values(@login, @password)";
 
-                    SqlParameter loginParameter = new SqlParameter
-                    {
-                        ParameterName = "@login",
-                        SqlDbType = System.Data.SqlDbType.NVarChar,
-                        SqlValue = user.Login
-                    };
+                    DbParameter loginParameter = command.CreateParameter();
+                    loginParameter.ParameterName = "@login";
+                    loginParameter.DbType = System.Data.DbType.String;
+                    loginParameter.Value = user.Login;
 
-                    SqlParameter passwordParameter = new SqlParameter
-                    {
-                        ParameterName = "@password",
-                        SqlDbType = System.Data.SqlDbType.NVarChar,
-                        SqlValue = user.Password
-                    };
+                    DbParameter passwordParameter = command.CreateParameter();
+                    passwordParameter.ParameterName = "@password";
+                    passwordParameter.DbType = System.Data.DbType.String;
+                    passwordParameter.Value = user.Password;
 
-                    command.Parameters.AddRange(new SqlParameter[] { loginParameter, passwordParameter });
+                    command.Parameters.AddRange(new DbParameter[] { loginParameter, passwordParameter });
                     var affectedRows = command.ExecuteNonQuery();
 
                     if (affectedRows < 1) throw new Exception("Вставка не удалась");
 
                     transaction.Commit();
                 }
-                catch (SqlException exception)
+                catch (DbException exception)
                 {
                     transaction?.Rollback();
                     //ToDo obrabotka
@@ -97,6 +102,10 @@ namespace ConnectionLevel.Models
                     transaction?.Rollback();
                     //ToDo obrabotka
                     throw;
+                }
+                finally
+                {
+                    transaction?.Dispose();
                 }
             }
         }
